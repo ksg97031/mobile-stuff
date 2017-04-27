@@ -3,6 +3,7 @@
 import subprocess
 import sys
 import os
+import base64
 from multiprocessing import Pool
 
 try:
@@ -16,12 +17,31 @@ def adb_shell(*args):
   return subprocess.check_output(full_args).decode()
 
 
+def adb_pull(remote, local):
+  try:
+    return subprocess.check_output(['adb', 'pull', remote, local])
+  except subprocess.CalledProcessError:
+    print('failed to pull %s' % remote)
+
+
+def su(command):
+  return adb_shell('su', '-c', command)
+
+
+def copy_system(base, remote_migrate):
+  remote_system_copy = '%s/system/' % remote_migrate
+  su('[ ! -d {0} ] && mkdir -p {0} && cp -r /system/bin /system/lib {0}'.format(remote_system_copy))
+
+
 def sync(pid):
   device_id = adb_shell('settings', 'get', 'secure', 'android_id').strip()
   parent = Path(__file__).resolve().parent
   root = parent / 'rom'
   base = root / device_id
-  maps = adb_shell('su', '-c', 'cat /proc/%d/maps' % pid)
+  migrate = Path('/sdcard/migrate')
+  copy_system(base, migrate)
+
+  maps = su('cat /proc/%d/maps' % pid)
   tasks = []
   for line in maps.splitlines():
     try:
@@ -30,26 +50,24 @@ def sync(pid):
       continue
 
     if 'x' in perms and pathname.startswith('/'):
-      local_path = base / pathname[1:]
-      tasks.append((pathname, local_path))
+      component = pathname[1:]
+      local_path = base / component
+      remote_migrate = migrate / component
+      tasks.append((pathname, remote_migrate, local_path))
 
-  print('%d files to sync' % len(tasks))
   pool = Pool(4)
   pool.map(su_pull, tasks)
 
 
-def su_pull(pair):
-  remote, local = pair
-  if local.exists():
-    return
+def su_pull(args):
+  remote, migrate, local = args
 
   print('pulling %s' % remote)
   if not local.parent.exists():
     os.makedirs(local.parent)
 
-  with open(local, 'wb') as out:
-    p = subprocess.Popen(['adb', 'shell', 'su', '-c', 'cat %s' % remote], stdout=out)
-    p.wait()
+  su('[ ! -f {1} ] cp -u {0} {1}'.format(remote, migrate))
+  adb_pull(migrate, local)
 
 
 if __name__ == '__main__':
