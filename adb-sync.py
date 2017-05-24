@@ -28,9 +28,12 @@ def su(command):
   return adb_shell('su', '-c', command)
 
 
-def copy_system(base, remote_migrate):
-  remote_system_copy = '%s/system/' % remote_migrate
-  su('[ ! -d {0} ] && mkdir -p {0} && cp -r /system/bin /system/lib {0}'.format(remote_system_copy))
+def pull_sys(base):
+  for path in ['system/bin/', 'system/lib/', 'vendor/lib/']:
+    remote = Path('/') / path
+    local = base / path
+    if not local.exists():
+      print(adb_pull(remote, local))
 
 
 def sync(pid):
@@ -39,7 +42,7 @@ def sync(pid):
   root = parent / 'rom'
   base = root / device_id
   migrate = Path('/sdcard/migrate')
-  copy_system(base, migrate)
+  pull_sys(base)
 
   maps = su('cat /proc/%d/maps' % pid)
   tasks = []
@@ -49,7 +52,7 @@ def sync(pid):
     except ValueError:
       continue
 
-    if 'x' in perms and pathname.startswith('/'):
+    if 'x' in perms and pathname.startswith('/') and not pathname.startswith('/system'):
       component = pathname[1:]
       local_path = base / component
       remote_migrate = migrate / component
@@ -57,6 +60,7 @@ def sync(pid):
 
   pool = Pool(4)
   pool.map(su_pull, tasks)
+  print('set solib-search-path %s' % base)
 
 
 def su_pull(args):
@@ -66,8 +70,11 @@ def su_pull(args):
   if not local.parent.exists():
     os.makedirs(local.parent)
 
-  su('[ ! -f {1} ] cp -u {0} {1}'.format(remote, migrate))
-  adb_pull(migrate, local)
+  try:
+    su('mkdir -p {0}; [ ! -f {2} ] && cp {1} {2}'.format(migrate.parent, remote, migrate))
+    adb_pull(migrate, local)
+  except:
+    pass
 
 
 if __name__ == '__main__':
