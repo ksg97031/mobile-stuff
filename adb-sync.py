@@ -3,7 +3,8 @@
 import subprocess
 import sys
 import os
-import base64
+import re
+
 from multiprocessing import Pool
 
 try:
@@ -28,60 +29,67 @@ def su(command):
     return adb_shell('su', '-c', command)
 
 
-def pull_sys(base):
-    for path in ['system/bin/', 'system/lib/', 'vendor/lib/']:
-        remote = Path('/') / path
-        local = base / path
-        if not local.exists():
-            print(adb_pull(remote, local))
-
-
-def sync(pid):
-    device_id = adb_shell('settings', 'get', 'secure', 'android_id').strip()
-    parent = Path(__file__).resolve().parent
-    root = parent / 'rom'
-    base = root / device_id
+def su_copy(path):
     migrate = Path('/sdcard/migrate')
-    pull_sys(base, migrate)
-
-    maps = su('cat /proc/%d/maps' % pid)
-    tasks = []
-    for line in maps.splitlines():
-        try:
-            address, perms, offset, dev, inode, pathname = line.split()
-        except ValueError:
-            continue
-
-        if 'x' in perms and pathname.startswith('/') and not pathname.startswith('/system'):
-            component = pathname[1:]
-            local_path = base / component
-            remote_migrate = migrate / component
-            tasks.append((pathname, remote_migrate, local_path))
-
-    pool = Pool(4)
-    pool.map(su_pull, tasks)
-    print('set solib-search-path %s' % base)
-
-
-def su_pull(args):
-    remote, migrate, local = args
-
-    print('pulling %s' % remote)
-    if not local.parent.exists():
-        os.makedirs(local.parent)
-
+    dest = migrate / path[1:]
+    print('pulling %s' % path)
     try:
-        su('mkdir -p {0}; [ ! -f {2} ] && cp {1} {2}'.format(migrate.parent, remote, migrate))
-        adb_pull(migrate, local)
-    except:
-        pass
+        su('[ -f {1} ] && mkdir -p {0}; [ ! -f {2} ] && cp -r {1} {2}'.format(dest.parent, path, dest))
+    except subprocess.CalledProcessError:
+        print('failed to copy: %s' % path)
+
+
+class Sync(object):
+    def __init__(self, arg):
+        try:
+            pid = int(arg)
+        except ValueError:
+            # package name?
+            pid = adb_shell('set `ps | grep %s` && echo $2' % arg)
+            if not pid:
+                raise RuntimeError('Unknown package name. Has {0} been installed and being running?' % arg)
+            pid = int(pid)
+
+        self.pid = pid
+
+
+    def get_deviceid(self):
+        device_id = adb_shell('settings', 'get', 'secure', 'android_id').strip()
+        print('device id: %s' % device_id)
+        parent = Path(__file__).resolve().parent
+        root = parent / 'rom'
+        self.base = root / device_id
+
+
+    def exec(self):
+        self.get_deviceid()
+
+        tasks = ['/system/bin/', '/system/lib/', '/vendor/lib/']
+        maps = su('cat /proc/%d/maps' % self.pid)
+        for line in maps.splitlines():
+            try:
+                address, perms, offset, dev, inode, pathname = line.split()
+            except ValueError:
+                continue
+
+            if 'x' in perms and pathname.startswith('/') and \
+                not pathname.startswith('/system') and \
+                not 're.frida.server' in pathname:
+                tasks.append(pathname)
+
+        
+        pool = Pool(4)
+        pool.map(su_copy, tasks)
+        adb_pull('/sdcard/migrate', self.base)
+        print('files pull to %s' % self.base)
+        print('set solib-search-path %s' % self.base)
 
 
 if __name__ == '__main__':
     try:
         _, arg = sys.argv
-        pid = int(arg)
-        sync(pid)
+    except IndexError:
+        print('Usage: sync.py PID or PACKAGE')
+        sys.exit(0)
 
-    except (ValueError, IndexError):
-        print('Usage: sync.py PID')
+    Sync(arg).exec()
