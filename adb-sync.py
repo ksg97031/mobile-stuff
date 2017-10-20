@@ -47,7 +47,7 @@ class Sync(object):
             # package name?
             pid = adb_shell('set `ps | grep %s` && echo $2' % arg)
             if not pid:
-                raise RuntimeError('Unknown package name. Has {0} been installed and being running?' % arg)
+                raise RuntimeError('Unknown package name or keyword {0}.' % arg)
             pid = int(pid)
 
         self.pid = pid
@@ -64,7 +64,9 @@ class Sync(object):
     def exec(self):
         self.get_deviceid()
 
-        tasks = ['/system/bin/', '/system/lib/', '/vendor/lib/']
+        probe = '/sdcard/migrate/system/bin/sh'
+        tasks = [] if adb_shell('ls', probe).strip() == probe else \
+            ['/system/bin/', '/system/lib/', '/vendor/lib/', '/system/framework']
         maps = su('cat /proc/%d/maps' % self.pid)
         for line in maps.splitlines():
             try:
