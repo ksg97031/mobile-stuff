@@ -25,8 +25,16 @@ rom/808c29e0a3b005a8/data
 ```
 
 ## ios-checksec
+### Requirements
+Dead simple checksec utility for ios executables.  
+Requires [lief framework](https://github.com/lief-project/LIEF).   
+You need to  `pip install lief` before running the script.  
+  
+lief didn't support above py3.6 version so I recommend using py2.7 version.  
+```
+python -m pip install setuptools --upgrade --user
+python -m pip install lief --user
+```
 
-Dead simple checksec utility for ios executables. Requires [lief framework](https://github.com/lief-project/LIEF). You need to  `pip install lief` before running the script.
-
-Usage: `python3 ios-checksec.py path/to/executable`
+Usage: `python ios-checksec.py path/to/executable`
 

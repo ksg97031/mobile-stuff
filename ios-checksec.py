@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import struct
 import lief
 from lief.MachO import LOAD_COMMAND_TYPES, HEADER_FLAGS
@@ -11,7 +11,7 @@ def check(filename):
   # nx = HEADER_FLAGS.ALLOW_STACK_EXECUTION not in macho.header.flags
 
   # PIE
-  pie_enabled = HEADER_FLAGS.PIE in macho.header.flags
+  pie_enabled = HEADER_FLAGS.PIE in macho.header.flags_list
 
   # restrict segment for anti-debugging
   # ptrace looks hard to detect by pure static analytics
